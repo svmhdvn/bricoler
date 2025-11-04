@@ -2560,6 +2560,9 @@ FreeBSD: {
 
             local bootstrapdir = "root/bootstrap/" .. pkgabi
             local pkgdir = "root/pkg/" .. pkgabi
+            -- Clean the pkgdir in case self.packages has changed between
+            -- invocations of bricoler
+            exec("rm", "-rf", stagedir .. "/" .. pkgdir)
 
             pkgcmd("update")
             pkgcmd("fetch", "--dependencies", "-o", "./" .. bootstrapdir, "pkg")
