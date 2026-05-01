@@ -947,7 +947,8 @@ class FreeBSDRegressionTestSuiteTask(FreeBSDVMBootTask):
             ssh.scp_from("/root/kyua.db", Path.cwd() / "kyua.db")
             ssh.scp_from("/root/kyua-report.txt", Path.cwd() / "kyua-report.txt")
         except FreeBSDVM.PanicException as e:
-            self._gdb("-ex", f"thread {e.cpuid + 1}")
+            if sys.stdin.isatty():
+                self._gdb("-ex", f"thread {e.cpuid + 1}")
             raise e
         return outputs
 
@@ -1497,7 +1498,8 @@ class OpenZFSTestSuiteTask(FreeBSDVMBootTask):
             ssh = SSHCommandRunner(vm.vmrun.ssh_addr, vm.vmrun.ssh_key)
             ssh.scp_from("/var/tmp/test_results/current", Path.cwd() / "test_results")
         except FreeBSDVM.PanicException as e:
-            self._gdb("-ex", f"thread {e.cpuid + 1}")
+            if sys.stdin.isatty():
+                self._gdb("-ex", f"thread {e.cpuid + 1}")
             raise e
         return outputs
 
