@@ -410,6 +410,12 @@ class FreeBSDVM:
     def sendline(self, line: str):
         self.proc.sendline(line)
 
+    def sendcmd(self, args: List[str]):
+        """Split a long command into multiple lines to avoid hitting buffer limits."""
+        for arg in args[:-1]:
+            self.proc.send(arg + " \\\n")
+        self.proc.sendline(args[-1])
+
     def boot_to_login(self):
         self.proc = pexpect.spawn(
             self.cmd[0],
@@ -426,3 +432,7 @@ class FreeBSDVM:
 
     def wait_for_prompt(self, **kwargs):
         self.expect("root@.*#", **kwargs)
+
+    def poweroff(self):
+        self.sendline("poweroff")
+        self.proc.expect(pexpect.EOF, timeout=120)

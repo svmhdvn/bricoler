@@ -923,6 +923,11 @@ class FreeBSDRegressionTestSuiteTask(FreeBSDVMBootTask):
         ),
     }
 
+    outputs = {
+        'report_db_path': Path,
+        'report_txt_path': Path,
+    }
+
     def run(self, ctx):
         outputs = super().run(ctx)
         vm: FreeBSDVM = outputs['vm']
@@ -939,19 +944,29 @@ class FreeBSDRegressionTestSuiteTask(FreeBSDVMBootTask):
                 "-j", str(self.parallelism),
                 "-r", "/root/kyua.db",
                 "-o", "/root/kyua-report.txt",
-                self.tests
-            ]
-            vm.sendline(" ".join(cmd))
+            ] + self.tests.split()
+            vm.sendcmd(cmd)
             vm.wait_for_prompt(timeout=10*3600)
 
+            report_db_path = Path.cwd() / "kyua.db"
+            report_txt_path = Path.cwd() / "kyua-report.txt"
+
             ssh = SSHCommandRunner(vm.vmrun.ssh_addr, vm.vmrun.ssh_key)
-            ssh.scp_from("/root/kyua.db", Path.cwd() / "kyua.db")
-            ssh.scp_from("/root/kyua-report.txt", Path.cwd() / "kyua-report.txt")
+            ssh.scp_from("/root/kyua.db", report_db_path)
+            ssh.scp_from("/root/kyua-report.txt", report_txt_path)
+
+            # We don't really need to power off the VM, but:
+            # - doing so might reveal a bug,
+            # - we might want to reuse the VM image, so should leave the fs clean.
+            vm.poweroff()
         except FreeBSDVM.PanicException as e:
             if sys.stdin.isatty():
                 self._gdb("-ex", f"thread {e.cpuid + 1}")
             raise e
-        return outputs
+        return {
+            'report_db_path': report_db_path,
+            'report_txt_path': report_txt_path,
+        }
 
     def _report(self, *args):
         self.run_cmd(["less", Path.cwd() / "kyua-report.txt"])
@@ -959,6 +974,81 @@ class FreeBSDRegressionTestSuiteTask(FreeBSDVMBootTask):
     actions = {
         'report': _report,
     }
+
+
+class FreeBSDRegressionTestSuiteCITask(FreeBSDRegressionTestSuiteTask):
+    """
+    Run the regression test suite in CI mode:
+    - Raise warnings about unexpected skipped tests. XXX-MJ
+    - Detect flakiness in tests and report it.
+    - Look for witness warnings after test runs and report them. XXX-MJ
+    - Don't run gdb upon a kernel panic, collect a kernel dump instead. XXX-MJ
+    - Keep track of results over time and report regressions. XXX-MJ
+    - Generate email reports.
+    """
+    name = "freebsd-regression-test-suite-ci"
+
+    inputs = {
+        'src': FreeBSDSrcGitCheckoutTask,
+    }
+
+    outputs = {
+        'email': EmailReport,
+    }
+
+    def run(self, ctx):
+        outputs = super().run(ctx)
+
+        db = KyuaDB(outputs['report_db_path'])
+        failing_tests = db.failed() + db.broken()
+        flaky = []
+        if failing_tests:
+            info(f"Re-running {len(failing_tests)} failed/broken test case(s) to check for flakiness")
+
+            with chdir(Path("./flaky-check")):
+                self.parallelism = 1
+                self.tests = " ".join(failing_tests)
+                flaky_outputs = super().run(ctx)
+
+            flaky_passed = set(KyuaDB(flaky_outputs['report_db_path']).passed())
+
+            flaky = [t for t in failing_tests if t in flaky_passed]
+            confirmed_failures = [t for t in failing_tests if t not in flaky_passed]
+
+            if flaky:
+                info("Potentially flaky tests (passed when run individually):")
+                for test_id in flaky:
+                    info(f"  {test_id}")
+            if confirmed_failures:
+                info("Confirmed failures (also fail when run individually):")
+                for test_id in confirmed_failures:
+                    info(f"  {test_id}")
+
+        subject = f"FreeBSD regression test suite results ({self.src.repo.checked_out_branch()})"
+
+        report  = f"Branch: {self.src.repo.checked_out_branch()}\n"
+        report += f"Commit: {self.src.repo.checked_out_revision()}\n"
+        report += "The test run completed successfully, with "
+        report += f"{len(db.passed())} passed, "
+        report += f"{len(db.failed())} failed, "
+        report += f"{len(db.broken())} broken, and "
+        report += f"{len(db.skipped())} skipped test cases.\n"
+
+        for result, tests in [("Failed", db.failed()), ("Broken", db.broken())]:
+            if len(tests) > 0:
+                report += f"\n{result} test cases:\n"
+                for test_id in tests:
+                    report += f"  {test_id}"
+                    if test_id in flaky:
+                        report += "    (flaky, passed after retry)"
+                    report += "\n"
+
+        return {
+            'email': EmailReport(
+                subject=subject,
+                body=report,
+            ),
+        }
 
 
 class FreeBSDDTraceTestSuiteBuildTask(FreeBSDRegressionTestSuiteBuildTask):
