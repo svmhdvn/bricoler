@@ -46,6 +46,7 @@ class KyuaDB:
         if res[0] != self.SCHEMA_VERSION:
             raise ValueError(f"KyuaDB: Unsupported schema_version {res[0]} in {path}")
 
+    @functools.cache
     def _results(self, restype: Result) -> List[str]:
         cursor = self.conn.cursor()
         cursor.execute(f"""
