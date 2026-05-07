@@ -92,7 +92,7 @@ class GitRepository:
         else:
             self.git(["fetch", "--unshallow", remote])
         self.git(["checkout", f"{self.branch}"])
-        self.git(["merge", "--ff-only", remote, f"{self.branch}"])
+        self.git(["merge", "--ff-only", f"{remote}/{self.branch}"])
 
     @property
     def remotes(self) -> Dict[str, str]:
