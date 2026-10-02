@@ -168,6 +168,15 @@ class FreeBSDSrcGitCheckoutTask(GitCheckoutTask):
         return outputs
 
 
+class FreeBSDPortsGitCheckoutTask(GitCheckoutTask):
+    """
+    Clone the FreeBSD ports tree, or update an existing clone.
+    """
+    name = "freebsd-ports-git-checkout"
+    url = "anongit@git.freebsd.org:ports.git"
+    branch = "main"
+
+
 class FreeBSDSrcBuildTask(Task):
     """
     Build a FreeBSD source tree.  On its own this does nothing, the invoker
